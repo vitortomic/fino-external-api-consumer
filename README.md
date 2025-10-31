@@ -106,3 +106,86 @@ A test script is provided to verify all API functionality:
 ```
 
 This script registers a new user, retrieves the JWT token, and uses it to fetch both earnings and transactions.
+
+## Querying Stored Data
+
+The application stores OnlyFans API responses in JSONB format, allowing for flexible querying of the data. Here are useful queries for extracting information from both tables:
+
+### Earnings Data Queries
+
+Query all relevant earnings fields:
+```sql
+SELECT 
+    e.id AS earnings_id,
+    e.user_id,
+    e.retrieved_at,
+    -- Total earnings data
+    (e.earnings_data->'list'->'total'->>'all'->>'total_net')::numeric AS total_net,
+    (e.earnings_data->'list'->'total'->>'all'->>'total_gross')::numeric AS total_gross,
+    -- Post earnings
+    (e.earnings_data->'list'->'total'->'post'->>'total_net')::numeric AS post_total_net,
+    (e.earnings_data->'list'->'total'->'post'->>'total_gross')::numeric AS post_total_gross,
+    -- Tips earnings
+    (e.earnings_data->'list'->'total'->'tips'->>'total_net')::numeric AS tips_total_net,
+    (e.earnings_data->'list'->'total'->'tips'->>'total_gross')::numeric AS tips_total_gross,
+    -- Subscribes earnings
+    (e.earnings_data->'list'->'total'->'subscribes'->>'total_net')::numeric AS subscribes_total_net,
+    (e.earnings_data->'list'->'total'->'subscribes'->>'total_gross')::numeric AS subscribes_total_gross,
+    -- Chat messages earnings
+    (e.earnings_data->'list'->'total'->'chat_messages'->>'total_net')::numeric AS chat_total_net,
+    (e.earnings_data->'list'->'total'->'chat_messages'->>'total_gross')::numeric AS chat_total_gross
+FROM onlyfans_earnings e;
+```
+
+### Transactions Data Queries
+
+Query all relevant transaction fields:
+```sql
+SELECT 
+    t.id AS transaction_id,
+    t.user_id,
+    t.retrieved_at,
+    trans_data ->> 'id' AS transaction_id,
+    (trans_data ->> 'amount')::numeric AS amount,
+    (trans_data ->> 'vatAmount')::numeric AS vat_amount,
+    (trans_data ->> 'taxAmount')::numeric AS tax_amount,
+    (trans_data ->> 'mediaTaxAmount')::numeric AS media_tax_amount,
+    (trans_data ->> 'net')::numeric AS net_amount,
+    (trans_data ->> 'fee')::numeric AS fee,
+    trans_data ->> 'createdAt' AS created_at,
+    trans_data ->> 'currency' AS currency,
+    trans_data ->> 'description' AS description,
+    trans_data ->> 'status' AS status,
+    trans_data ->> 'payoutPendingDays' AS payout_pending_days,
+    -- User details from transaction
+    (trans_data->'user'->>'id') AS user_id,
+    trans_data->'user'->>'username' AS username,
+    trans_data->'user'->>'name' AS name,
+    trans_data->'user'->>'isVerified' AS is_verified
+FROM onlyfans_transactions t
+CROSS JOIN jsonb_array_elements(transactions_data->'list') AS trans_data;
+```
+
+### Aggregated Data Queries
+
+Get aggregated earnings by user:
+```sql
+SELECT 
+    user_id,
+    SUM((earnings_data->'list'->'total'->'all'->>'total_net')::numeric) AS total_net,
+    SUM((earnings_data->'list'->'total'->'all'->>'total_gross')::numeric) AS total_gross
+FROM onlyfans_earnings
+GROUP BY user_id;
+```
+
+Get aggregated transactions by user:
+```sql
+SELECT 
+    t.user_id,
+    SUM((trans_data ->> 'amount')::numeric) AS total_amount,
+    SUM((trans_data ->> 'net')::numeric) AS total_net,
+    COUNT(*) AS total_transactions
+FROM onlyfans_transactions t
+CROSS JOIN jsonb_array_elements(transactions_data->'list') AS trans_data
+GROUP BY t.user_id;
+```
